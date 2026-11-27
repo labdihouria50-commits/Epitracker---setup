@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EpiTracker – Global Diseases Tracker</title>
+<style>
+:root{--bg:#0a2447;--card:#10346a;--line:#1d4a8a;--green:#4ade80;--teal:#2dd4bf;--red:#ef4444;--text:#eaf2ff;--mut:#9db6d8}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;background:#071a35;border-bottom:2px solid var(--green)}
+header img{height:44px;border-radius:8px}header h1{font-size:18px;margin:0;flex:1 1 auto;background:linear-gradient(90deg,var(--green),var(--teal));-webkit-background-clip:text;color:transparent}
+main{max-width:900px;margin:auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+input,select,button{font:inherit;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0a2447;color:var(--text);width:100%;margin:4px 0}
+button{width:auto;cursor:pointer;background:linear-gradient(90deg,var(--green),var(--teal));color:#04210f;font-weight:700;border:0}
+button.sec{background:transparent;color:var(--text);border:1px solid var(--teal)}button.red{background:var(--red);color:#fff}
+.tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}.tabs button.on{outline:2px solid #fff}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.mut{color:var(--mut);font-size:13px}.tag{background:var(--line);padding:2px 8px;border-radius:99px;font-size:12px}
+#auth{max-width:380px;margin:8vh auto;text-align:center}#auth img{width:160px;border-radius:16px}
+header #who{order:5;flex:1 0 100%;word-break:break-all;font-size:12px}header button{padding:6px 10px;font-size:13px}
+html,body{max-width:100%;overflow-x:hidden}.tabs button{padding:8px 12px}
+footer{text-align:center;padding:20px;color:var(--mut);font-size:13px}.hide{display:none!important}#msg{color:#fca5a5;min-height:20px}
+</style></head><body>
+
+<section id="auth" class="card">
+  <img id="logoA" src="" alt="">
+  <h2 style="color:var(--green)">EpiTracker</h2><div class="mut">Global Diseases Tracker</div>
+  <input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password">
+  <div id="msg"></div>
+  <button onclick="login()">Login</button> <button class="sec" onclick="signup()">Create visitor account</button>
+</section>
+
+<div id="app" class="hide">
+<header><img id="logoH" alt=""><h1>EpiTracker</h1><span id="who" class="mut"></span>
+<button id="setBtn" class="sec hide" onclick="openSet()">⚙ Settings</button><button class="sec" onclick="logout()">Logout</button></header>
+<main>
+ <div class="tabs"><button class="on" data-t="files">Files</button><button class="sec" data-t="reqs">Requests</button><button class="sec hide" id="admTab" data-t="adm">Admin</button></div>
+
+ <div id="t_files">
+  <div class="card"><input id="q" placeholder="🔍 Search files (title, category, doctor)…" oninput="render()"></div>
+  <div id="upBox" class="card hide"><b>Add epidemiological file</b><div class="mut">Upload your PDF/Excel to Google Drive (anyone with link), then paste the link here. Only approved people can see it.</div>
+   <input id="ft" placeholder="Title"><input id="fc" placeholder="Category / disease">
+   <input id="ff" type="url" placeholder="File link (Google Drive / PDF / Excel link) – optional"><button onclick="upload()">Upload</button> <span id="upS" class="mut"></span></div>
+  <div id="list"></div>
+ </div>
+ <div id="t_reqs" class="hide"><div id="reqList"></div></div>
+ <div id="t_adm" class="hide">
+  <div class="card"><b>Users</b><div id="users"></div></div>
+  <div class="card"><b>Activity log (latest 100)</b><div id="logs"></div></div>
+ </div>
+
+ <div id="setBox" class="card hide"><b>Site settings</b>
+  <div class="mut">Logo</div><input id="sl" type="file" accept="image/*">
+  <input id="sp" placeholder="Phone number"><input id="se" placeholder="Email"><input id="su" placeholder="University">
+  <button onclick="saveSet()">Save</button> <button class="sec" onclick="openSet()">Close</button></div>
+</main>
+<footer id="foot"></footer>
+</div>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,getDoc,setDoc,addDoc,updateDoc,deleteDoc,collection,getDocs,query,where,orderBy,limit,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const cfg={apiKey:"AIzaSyDn5QKb2jS0J5C37WawW0g8dFq8U3yhHwU",authDomain:"epitracker-01.firebaseapp.com",projectId:"epitracker-01",storageBucket:"epitracker-01.firebasestorage.app",messagingSenderId:"502273588462",appId:"1:502273588462:web:be6a0436c336d7639087ff"};
+const app=initializeApp(cfg),auth=getAuth(app),db=getFirestore(app);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let me=null,files=[],grants=new Set(),reqs=[],site={};
+const isDoc=()=>me&&["doctor","admin"].includes(me.role),isAdm=()=>me&&me.role==="admin";
+const log=(action,detail="")=>addDoc(collection(db,"logs"),{uid:me.uid,email:me.email,action,detail,at:serverTimestamp()}).catch(()=>{});
+
+async function loadSite(){try{const s=await getDoc(doc(db,"settings","site"));site=s.exists()?s.data():{};}catch(e){}
+ const l=site.logo||"";$("logoA").src=l;$("logoH").src=l;$("logoA").classList.toggle("hide",!l);$("logoH").classList.toggle("hide",!l);
+ $("foot").innerHTML=[site.university,site.phone&&"📞 "+site.phone,site.email&&"✉ "+site.email].filter(Boolean).map(esc).join(" · ");}
+await loadSite();
+
+window.login=async()=>{try{await signInWithEmailAndPassword(auth,$("em").value,$("pw").value)}catch(e){$("msg").textContent="Wrong email or password"}};
+window.signup=async()=>{try{const c=await createUserWithEmailAndPassword(auth,$("em").value,$("pw").value);
+ await setDoc(doc(db,"users",c.user.uid),{email:c.user.email,role:"visitor",created:serverTimestamp()})}catch(e){$("msg").textContent=e.message}};
+window.logout=()=>signOut(auth);
+
+onAuthStateChanged(auth,async u=>{
+ if(!u){me=null;$("app").classList.add("hide");$("auth").classList.remove("hide");return;}
+ let s=await getDoc(doc(db,"users",u.uid));
+ if(!s.exists()){await new Promise(r=>setTimeout(r,800));s=await getDoc(doc(db,"users",u.uid));}
+ me={uid:u.uid,email:u.email,role:s.exists()?s.data().role:"visitor"};
+ $("auth").classList.add("hide");$("app").classList.remove("hide");
+ $("who").textContent=`${me.email} (${me.role})`;
+ $("upBox").classList.toggle("hide",!isDoc());$("admTab").classList.toggle("hide",!isAdm());$("setBtn").classList.toggle("hide",!isAdm());
+ log("login");await refresh();
+});
+
+async function refresh(){
+ files=(await getDocs(query(collection(db,"files"),orderBy("at","desc")))).docs.map(d=>({id:d.id,...d.data()}));
+ grants=new Set(isDoc()?[]:(await getDocs(query(collection(db,"grants"),where("uid","==",me.uid)))).docs.map(d=>d.data().fileId));
+ reqs=(await getDocs(isAdm()?collection(db,"requests"):query(collection(db,"requests"),where("uid","==",me.uid)))).docs.map(d=>({id:d.id,...d.data()}));
+ render();renderReqs();if(isAdm())renderAdmin();
+}
+window.render=()=>{const q=$("q").value.toLowerCase();
+ $("list").innerHTML=files.filter(f=>[f.title,f.category,f.by].join(" ").toLowerCase().includes(q)).map(f=>{
+  const can=isDoc()||grants.has(f.id),pend=reqs.some(r=>r.fileId===f.id&&r.status==="pending");
+  return `<div class="card row"><div><b>${esc(f.title)}</b> <span class="tag">${esc(f.category)}</span><div class="mut">by ${esc(f.by)}</div></div>
+  <div>${can?`<button onclick="dl('${f.id}')">Open file</button>`:pend?`<span class="mut">Request pending…</span>`:`<button class="sec" onclick="ask('${f.id}')">Request access</button>`}
+  ${isAdm()?`<button class="red" onclick="del('${f.id}')">Delete</button>`:""}</div></div>`}).join("")||`<div class="card mut">No files found.</div>`;};
+
+window.upload=async()=>{const t=$("ft").value.trim(),l=$("ff").value.trim();if(!t){$("upS").textContent="Title required";return;}
+ $("upS").textContent="Saving…";try{const id=crypto.randomUUID();
+ await setDoc(doc(db,"files",id),{title:t,category:$("fc").value.trim(),uid:me.uid,by:me.email,at:serverTimestamp()});
+ if(l)await setDoc(doc(db,"links",id),{url:l});
+ log("upload",t);$("ft").value=$("fc").value=$("ff").value="";$("upS").textContent="Done ✓";await refresh();}catch(e){$("upS").textContent="Error: "+e.message}};
+window.dl=async id=>{const f=files.find(x=>x.id===id);try{const l=await getDoc(doc(db,"links",id));
+ if(!l.exists()){alert("No file link was added for this entry");return;}window.open(l.data().url,"_blank");log("download",f.title)}catch(e){alert("Not allowed")}};
+window.del=async id=>{if(!confirm("Delete this file?"))return;const f=files.find(x=>x.id===id);
+ try{await deleteDoc(doc(db,"links",id))}catch(e){}await deleteDoc(doc(db,"files",id));log("delete",f.title);refresh();};
+window.ask=async id=>{const f=files.find(x=>x.id===id);await addDoc(collection(db,"requests"),{uid:me.uid,email:me.email,fileId:id,title:f.title,status:"pending",at:serverTimestamp()});log("request",f.title);refresh();};
+
+function renderReqs(){$("reqList").innerHTML=reqs.map(r=>`<div class="card row"><div><b>${esc(r.title)}</b><div class="mut">${esc(r.email)} · ${esc(r.status)}</div></div>
+ ${isAdm()&&r.status==="pending"?`<div><button onclick="decide('${r.id}',true)">Approve</button> <button class="red" onclick="decide('${r.id}',false)">Deny</button></div>`:""}</div>`).join("")||`<div class="card mut">No requests.</div>`;}
+window.decide=async(id,ok)=>{const r=reqs.find(x=>x.id===id);
+ if(ok)await setDoc(doc(db,"grants",r.uid+"_"+r.fileId),{uid:r.uid,fileId:r.fileId});
+ await updateDoc(doc(db,"requests",id),{status:ok?"approved":"denied"});log(ok?"approve":"deny",r.email+" → "+r.title);refresh();};
+
+async function renderAdmin(){
+ const us=(await getDocs(collection(db,"users"))).docs.map(d=>({id:d.id,...d.data()}));
+ $("users").innerHTML=us.map(u=>`<div class="row"><span>${esc(u.email)}</span><select onchange="setRole('${u.id}',this.value)">
+  ${["visitor","doctor","admin"].map(r=>`<option ${u.role===r?"selected":""}>${r}</option>`).join("")}</select></div>`).join("");
+ const lg=(await getDocs(query(collection(db,"logs"),orderBy("at","desc"),limit(100)))).docs.map(d=>d.data());
+ $("logs").innerHTML=lg.map(l=>`<div class="mut">${l.at?l.at.toDate().toLocaleString():""} · <b>${esc(l.email)}</b> · ${esc(l.action)} ${esc(l.detail)}</div>`).join("");}
+window.setRole=async(id,r)=>{await updateDoc(doc(db,"users",id),{role:r});log("role",id+" → "+r)};
+
+window.openSet=()=>{$("setBox").classList.toggle("hide");$("sp").value=site.phone||"";$("se").value=site.email||"";$("su").value=site.university||"";};
+window.saveSet=async()=>{let logo=site.logo||"";const f=$("sl").files[0];
+ if(f)logo=await new Promise(res=>{const img=new Image();img.onload=()=>{const c=document.createElement("canvas"),s=Math.min(1,300/img.width);
+  c.width=img.width*s;c.height=img.height*s;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.85))};img.src=URL.createObjectURL(f)});
+ await setDoc(doc(db,"settings","site"),{logo,phone:$("sp").value,email:$("se").value,university:$("su").value});
+ await loadSite();$("setBox").classList.add("hide");};
+
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+ document.querySelectorAll(".tabs button").forEach(x=>{x.classList.remove("on");x.classList.add("sec")});b.classList.add("on");b.classList.remove("sec");
+ ["files","reqs","adm"].forEach(t=>$("t_"+t).classList.toggle("hide",t!==b.dataset.t));});
+</script></body></html>
